@@ -8,14 +8,12 @@ class VaultAuditTool:
         self.root = root
         self.root.title("Hashicorp Vault Policy Auditor")
         
-        # Make the UI start maximized
         try:
             self.root.state('zoomed')
         except:
             self.root.attributes('-zoomed', True)
         
         self.engine = VaultAuditEngine()
-        self.var_no_ext = tk.BooleanVar(value=True) 
         self._setup_ui()
         self._setup_styles()
 
@@ -28,7 +26,12 @@ class VaultAuditTool:
         self.lbl_status.pack(side=tk.LEFT, padx=10)
         
         tk.Button(top_frame, text="Browse Folder", command=self.browse_folder).pack(side=tk.LEFT)
-        tk.Checkbutton(top_frame, text="No Extension Mode", variable=self.var_no_ext, bg="#f0f0f0").pack(side=tk.LEFT, padx=20)
+        
+        # NEW EXTENSION INPUT
+        tk.Label(top_frame, text="Extensions (e.g. .hcl, .txt):", bg="#f0f0f0").pack(side=tk.LEFT, padx=(20, 5))
+        self.ent_ext = tk.Entry(top_frame, width=15)
+        self.ent_ext.pack(side=tk.LEFT)
+        # Placeholder / Default tooltip logic could go here, but empty means Default
         
         tk.Button(top_frame, text="RUN AUDIT", command=self.run_audit, bg="#4CAF50", fg="white").pack(side=tk.RIGHT, padx=10)
         self.btn_export_html = tk.Button(top_frame, text="Export HTML", command=self.export_html, state="disabled")
@@ -44,9 +47,8 @@ class VaultAuditTool:
         self.tab_risks = tk.Frame(self.tabs); self.tabs.add(self.tab_risks, text="1. Risks")
         self.tree_risks = self._create_tree(self.tab_risks, ["Severity", "Policy", "Path", "Issue", "Fix"])
         
-        # Tab 2: Access Explorer (Renamed from "Matrix")
+        # Tab 2: Access Explorer
         self.tab_matrix = tk.Frame(self.tabs); self.tabs.add(self.tab_matrix, text="2. Access Explorer")
-        
         tb_matrix = tk.Frame(self.tab_matrix); tb_matrix.pack(fill=tk.X, padx=5, pady=2)
         tk.Button(tb_matrix, text="+ Expand All", command=lambda: self.expand_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT)
         tk.Button(tb_matrix, text="- Collapse All", command=lambda: self.collapse_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
@@ -54,7 +56,6 @@ class VaultAuditTool:
 
         # Tab 3: Inspector
         self.tab_policies = tk.Frame(self.tabs); self.tabs.add(self.tab_policies, text="3. Policy Inspector")
-        
         tb_pol = tk.Frame(self.tab_policies); tb_pol.pack(fill=tk.X, padx=5, pady=2)
         tk.Button(tb_pol, text="+ Expand All", command=lambda: self.expand_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT)
         tk.Button(tb_pol, text="- Collapse All", command=lambda: self.collapse_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
@@ -77,19 +78,11 @@ class VaultAuditTool:
         return tree
 
     def _setup_styles(self):
-        # 1. Risks Tab Styles
-        # Note: Treeview applies colors to the entire row.
         self.tree_risks.tag_configure("CRITICAL", foreground="#D32F2F", font=("Segoe UI", 9, "bold"))
         self.tree_risks.tag_configure("HIGH", foreground="#E67E22")
         self.tree_risks.tag_configure("MEDIUM", foreground="#F1C40F")
-
-        # 2. Access Explorer (Matrix) Styles
-        # Highlight rows with ADMIN risk in Red
         self.tree_matrix.tag_configure("ADMIN_RISK", foreground="#D32F2F", font=("Segoe UI", 9, "bold"))
-        # Highlight Implicit paths (via wildcard) in Blue
         self.tree_matrix.tag_configure("IMPLICIT", foreground="#3498db")
-        
-        # 3. Policy Inspector Styles
         self.tree_policies.tag_configure("MATCH", foreground="#3498db")
 
     def expand_all(self, tree):
@@ -116,8 +109,12 @@ class VaultAuditTool:
         for t in [self.tree_risks, self.tree_matrix, self.tree_policies]:
             for i in t.get_children(): t.delete(i)
             
+        # PARSE EXTENSIONS
+        ext_raw = self.ent_ext.get()
+        ext_list = [e.strip() for e in ext_raw.split(",")] if ext_raw.strip() else None
+
         self.engine.reset()
-        self.engine.scan_folder(self.selected_folder, ignore_extensions=self.var_no_ext.get())
+        self.engine.scan_folder(self.selected_folder, extensions=ext_list)
         self.engine.analyze()
         self._populate_ui()
         
@@ -126,28 +123,22 @@ class VaultAuditTool:
         messagebox.showinfo("Done", f"Found {self.engine.stats['CRITICAL']} Critical Risks.")
 
     def _populate_ui(self):
-        # 1. Risks (Sorted CRITICAL -> HIGH -> MEDIUM)
         sev_priority = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
         self.engine.audit_issues.sort(key=lambda x: sev_priority.get(x['sev'], 99))
 
         for i in self.engine.audit_issues:
             self.tree_risks.insert("", "end", values=(i['sev'], i['pol'], i['path'], i['msg'], i['fix']), tags=(i['sev'],))
             
-        # 2. Access Explorer
         for path, entries in sorted(self.engine.path_matrix.items()):
             node = self.tree_matrix.insert("", "end", text=path, open=False)
             for e in entries:
                 disp = e['policy'] + (f" (via {e['via']})" if e['via'] else "")
                 risk_flag = self.engine.get_risk_flag(e['caps'])
-                
-                # Determine Tags
                 tags = []
                 if "ADMIN" in risk_flag: tags.append("ADMIN_RISK")
                 if e['via']: tags.append("IMPLICIT")
-                
                 self.tree_matrix.insert(node, "end", text=disp, values=(", ".join(e['caps']), risk_flag), tags=tuple(tags))
 
-        # 3. Policy Inspector
         for pol_name, data in sorted(self.engine.policies_data.items()):
             p_node = self.tree_policies.insert("", "end", text=pol_name, open=False)
             for path_block in data['parsed'].get('path', []):
@@ -158,7 +149,6 @@ class VaultAuditTool:
                         if matches: matches_str = f"Matches {len(matches)} paths"
 
                     item_id = self.tree_policies.insert(p_node, "end", text=path_str, values=(", ".join(rules.get('capabilities', [])).upper(), matches_str))
-                    
                     if matches_str:
                          for m in matches: self.tree_policies.insert(item_id, "end", text=f"↳ {m}", values=("(Inherited)", ""), tags=("MATCH",))
 
