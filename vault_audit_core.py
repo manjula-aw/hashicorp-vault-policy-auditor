@@ -5,7 +5,7 @@ import datetime
 import re
 import shutil
 import openpyxl
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 
 class VaultAuditEngine:
     def __init__(self):
@@ -21,7 +21,6 @@ class VaultAuditEngine:
         self.__init__()
 
     def scan_folder(self, folder_path, ignore_extensions=True):
-        """Scans a directory and parses policy files."""
         if not os.path.exists(folder_path):
             raise FileNotFoundError(f"Directory not found: {folder_path}")
 
@@ -45,7 +44,7 @@ class VaultAuditEngine:
                     }
                     self.processing_log.append({"file": filename, "status": "SUCCESS", "msg": "Parsed OK"})
                     
-                    # Index concrete paths
+                    # Index concrete paths (exclude ones with wildcards)
                     for path_block in parsed_dict.get('path', []):
                         for path_str, _ in path_block.items():
                             if "*" not in path_str and "+" not in path_str:
@@ -55,31 +54,18 @@ class VaultAuditEngine:
                     self.processing_log.append({"file": filename, "status": "FAILED", "msg": str(e)})
 
     def _vault_match(self, rule_path, concrete_path):
-        """
-        Vault-specific matching logic:
-        * -> matches anything (greedy)
-        +  -> matches any characters NOT including / (single segment)
-        """
-        # Escape special Regex characters in the rule (like dots), but leave * and + for processing
-        # We temporarily replace * and + with placeholders to avoid re.escape messing them up
+        """Matches Vault wildcards (* and +) against concrete paths."""
         token_star = "___STAR___"
         token_plus = "___PLUS___"
-        
         safe_rule = rule_path.replace("*", token_star).replace("+", token_plus)
         escaped_rule = re.escape(safe_rule)
-        
-        # Convert Placeholders to Regex
-        # * becomes .* (match anything)
-        # + becomes [^/]+ (match anything except a slash)
         regex_pattern = "^" + escaped_rule.replace(token_star, ".*").replace(token_plus, "[^/]+") + "$"
-        
         try:
             return re.match(regex_pattern, concrete_path) is not None
         except:
             return False
 
     def analyze(self):
-        """Performs the security analysis and wildcard mapping."""
         # 1. Direct Analysis
         for policy_name, data in self.policies_data.items():
             paths = data['parsed'].get('path', [])
@@ -92,16 +78,13 @@ class VaultAuditEngine:
                     self.path_matrix[path_str].append({"policy": policy_name, "caps": caps, "via": None})
                     self._check_security(policy_name, path_str, caps)
 
-        # 2. Wildcard Injection (Updated for + support)
+        # 2. Wildcard Injection
         for concrete_path in self.all_concrete_paths:
             for policy_name, data in self.policies_data.items():
                 paths = data['parsed'].get('path', [])
                 for path_entry in paths:
                     for rule_path, rules in path_entry.items():
-                        # Check if rule has wildcards (* or +)
                         if ("*" in rule_path or "+" in rule_path) and self._vault_match(rule_path, concrete_path):
-                            
-                            # Don't add if explicit exists
                             exists = any(x for x in self.path_matrix.get(concrete_path, []) 
                                          if x['policy'] == policy_name and x['via'] is None)
                             if not exists:
@@ -114,32 +97,21 @@ class VaultAuditEngine:
     def _check_security(self, policy, path, caps):
         caps_lower = [c.lower() for c in caps]
         issue = None
-        
-        # Priority 1: Sudo (Critical)
         if "sudo" in caps_lower:
-            issue = {"sev": "CRITICAL", "msg": "Grants 'sudo' capability", "fix": "Remove 'sudo' unless for root admin."}
-        
-        # Priority 2: Full Wildcard (Critical)
+            issue = {"sev": "CRITICAL", "msg": "Grants 'sudo' capability", "fix": "Remove 'sudo'."}
         elif "*" in caps_lower:
-            issue = {"sev": "CRITICAL", "msg": "Grants '*' capability", "fix": "Replace '*' with specific list [\"read\"]."}
-        
-        # Priority 3: System Write (High)
+            issue = {"sev": "CRITICAL", "msg": "Grants '*' capability", "fix": "Replace '*' with specific list."}
         elif path.startswith("sys/") and any(x in caps_lower for x in ["create", "update", "delete", "sudo"]):
             issue = {"sev": "HIGH", "msg": "Write access to System Backend", "fix": "Restrict to read-only."}
-        
-        # Priority 4: Root Wildcard (High)
         elif path == "*" or path == "/*":
             issue = {"sev": "HIGH", "msg": "Root wildcard path", "fix": "Scope to specific paths."}
-
-        # Priority 5: Segment Wildcard + (Medium) - NEW
         elif "+" in path:
-             issue = {"sev": "MEDIUM", "msg": "Uses Segment Wildcard (+)", "fix": "Ensure this does not expose sibling paths (e.g. secret/+/config)."}
+             issue = {"sev": "MEDIUM", "msg": "Uses Segment Wildcard (+)", "fix": "Ensure this does not expose sibling paths."}
 
         if issue:
             issue.update({"pol": policy, "path": path})
             self.audit_issues.append(issue)
-            if issue['sev'] in self.stats:
-                self.stats[issue['sev']] += 1
+            if issue['sev'] in self.stats: self.stats[issue['sev']] += 1
 
     def sanitize_id(self, s):
         return re.sub(r'[^a-zA-Z0-9]', '_', s)
@@ -153,8 +125,6 @@ class VaultAuditEngine:
 
     def export_excel(self, file_path):
         wb = openpyxl.Workbook()
-        
-        # Styles
         header_fill = PatternFill(start_color="34495E", end_color="34495E", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         crit_fill = PatternFill(start_color="E74C3C", fill_type="solid")
@@ -164,7 +134,6 @@ class VaultAuditEngine:
         ws = wb.active; ws.title = "Security Risks"
         ws.append(["Severity", "Policy", "Path", "Issue", "Recommendation"])
         for cell in ws[1]: cell.fill, cell.font = header_fill, header_font
-
         for i in self.audit_issues:
             ws.append([i['sev'], i['pol'], i['path'], i['msg'], i['fix']])
             cell = ws.cell(row=ws.max_row, column=1)
@@ -175,7 +144,6 @@ class VaultAuditEngine:
         ws2 = wb.create_sheet("Access Matrix")
         ws2.append(["Path", "Policy", "Via", "Capabilities", "Risk"])
         for cell in ws2[1]: cell.fill, cell.font = header_fill, header_font
-
         for path in sorted(self.path_matrix.keys()):
             for entry in self.path_matrix[path]:
                 via = entry['via'] if entry['via'] else "Direct"
@@ -183,17 +151,32 @@ class VaultAuditEngine:
                 risk = self.get_risk_flag(entry['caps'])
                 ws2.append([path, entry['policy'], via, caps, risk])
 
-        # Sheet 3: Log
-        ws3 = wb.create_sheet("Processing Log")
-        ws3.append(["File", "Status", "Message"])
+        # Sheet 3: Policy Inspector (RESTORED)
+        ws3 = wb.create_sheet("Policy Inspector")
+        ws3.append(["Policy File", "Rule Path", "Capabilities", "Wildcard Matches"])
         for cell in ws3[1]: cell.fill, cell.font = header_fill, header_font
+        
+        for pol_name, data in sorted(self.policies_data.items()):
+            content = data['parsed']
+            for path_block in content.get('path', []):
+                for path_str, rules in path_block.items():
+                    caps = ", ".join(rules.get('capabilities', [])).upper()
+                    matches_str = ""
+                    if "*" in path_str or "+" in path_str:
+                         matches = [m for m in self.all_concrete_paths if self._vault_match(path_str, m)]
+                         if matches: matches_str = ", ".join(matches)
+                    ws3.append([pol_name, path_str, caps, matches_str])
+
+        # Sheet 4: Log
+        ws4 = wb.create_sheet("Processing Log")
+        ws4.append(["File", "Status", "Message"])
+        for cell in ws4[1]: cell.fill, cell.font = header_fill, header_font
         for item in self.processing_log:
-            ws3.append([item['file'], item['status'], item['msg']])
+            ws4.append([item['file'], item['status'], item['msg']])
 
         wb.save(file_path)
 
     def export_html(self, file_path):
-        # Logic to copy mermaid.min.js if available locally
         save_dir = os.path.dirname(file_path)
         script_dir = os.path.join(save_dir, "script")
         app_dir = os.path.dirname(os.path.abspath(__file__))
@@ -201,42 +184,63 @@ class VaultAuditEngine:
         mermaid_dest = os.path.join(script_dir, "mermaid.min.js")
         
         mermaid_tag = '<script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs"; mermaid.initialize({ startOnLoad: true });</script>'
-        
         if os.path.exists(mermaid_src):
             try:
                 if not os.path.exists(script_dir): os.makedirs(script_dir)
                 shutil.copy2(mermaid_src, mermaid_dest)
                 mermaid_tag = '<script src="script/mermaid.min.js"></script>\n<script>mermaid.initialize({ startOnLoad: true });</script>'
-            except Exception as e:
-                print(f"Warning: Could not copy local mermaid script: {e}")
+            except: pass
 
-        # Graph Generation
+        # Graph
         graph_def = "graph LR\n"
         has_graph = False
         for issue in self.audit_issues:
             if issue['sev'] in ["CRITICAL", "HIGH"]:
-                pol_id = self.sanitize_id(issue['pol'])
-                path_id = self.sanitize_id(issue['path'])
+                pol_id = self.sanitize_id(issue['pol']); path_id = self.sanitize_id(issue['path'])
                 graph_def += f"    {pol_id}[\"{html.escape(issue['pol'])}\"] -->|Risky| {path_id}(\"{html.escape(issue['path'])}\")\n"
                 has_graph = True
-        
         graph_def += "    classDef policy fill:#e1f5fe,stroke:#01579b,stroke-width:2px;\n"
         graph_def += "    classDef risk fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;\n"
         if not has_graph: graph_def += "    Ok[No High Risks Detected]:::policy\n"
 
-        # HTML Rows
-        rows = ""
-        for i in self.audit_issues:
-            sev_c = f"bg-{i['sev'].lower()}"
-            rows += f"<tr><td><span class='badge {sev_c}'>{i['sev']}</span></td><td>{html.escape(i['pol'])}</td><td><span class='path-mono'>{html.escape(i['path'])}</span></td><td>{html.escape(i['msg'])}</td><td>{html.escape(i['fix'])}</td></tr>"
-
+        # Content Generation
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        # HTML Template (Condensed)
         html_content = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Vault Audit</title>{mermaid_tag}
         <style>:root{{--bg:#f4f6f8;--white:#fff;--danger:#e74c3c;--warning:#f39c12;}} body{{font-family:sans-serif;background:var(--bg);padding:20px;}} .card{{background:var(--white);padding:20px;border-radius:8px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,0.05);}} table{{width:100%;border-collapse:collapse;}} th,td{{padding:12px;border-bottom:1px solid #eee;text-align:left;}} .badge{{padding:4px 8px;border-radius:12px;color:white;font-weight:bold;font-size:0.8em;}} .bg-critical{{background:var(--danger);}} .bg-high{{background:var(--warning);}} .bg-medium{{background:#f1c40f;color:#333;}} .bg-low{{background:#95a5a6;}} .path-mono{{font-family:monospace;color:#e83e8c;background:#fdf0f5;padding:2px 5px;}} .mermaid{{text-align:center;}}</style>
         </head><body><div class="container"><div class="card"><h1>Vault Policy Audit Report</h1><p>{timestamp}</p></div>
         <div class="card"><h2>Risk Graph</h2><div class="mermaid">{graph_def}</div></div>
-        <div class="card"><h2>Security Risks</h2><table><thead><tr><th>Severity</th><th>Policy</th><th>Path</th><th>Issue</th><th>Fix</th></tr></thead><tbody>{rows}</tbody></table></div></div></body></html>"""
+        
+        <div class="card"><h2>1. Security Risks</h2><table><thead><tr><th>Severity</th><th>Policy</th><th>Path</th><th>Issue</th><th>Fix</th></tr></thead><tbody>"""
+        
+        for i in self.audit_issues:
+            sev_c = f"bg-{i['sev'].lower()}"
+            html_content += f"<tr><td><span class='badge {sev_c}'>{i['sev']}</span></td><td>{html.escape(i['pol'])}</td><td><span class='path-mono'>{html.escape(i['path'])}</span></td><td>{html.escape(i['msg'])}</td><td>{html.escape(i['fix'])}</td></tr>"
+        html_content += "</tbody></table></div>"
+
+        # Policy Inspector (RESTORED in HTML)
+        html_content += """<div class="card"><h2>2. Policy Inspector</h2><table><thead><tr><th>Policy</th><th>Rule Path</th><th>Capabilities</th><th>Concrete Matches</th></tr></thead><tbody>"""
+        for pol_name, data in sorted(self.policies_data.items()):
+            content = data['parsed']
+            first = True
+            paths_list = []
+            
+            # Pre-calculate to handle rowspan logic if needed, or just list simply
+            for path_block in content.get('path', []):
+                for path_str, rules in path_block.items():
+                    caps = ", ".join(rules.get('capabilities', [])).upper()
+                    matches_html = ""
+                    if "*" in path_str or "+" in path_str:
+                         matches = [m for m in self.all_concrete_paths if self._vault_match(path_str, m)]
+                         if matches: matches_html = "<br><small style='color:gray'>↳ " + ", ".join(matches) + "</small>"
+                    paths_list.append((path_str, caps, matches_html))
+            
+            if not paths_list:
+                html_content += f"<tr><td><b>{html.escape(pol_name)}</b></td><td colspan='3'><i>No paths</i></td></tr>"
+            else:
+                for idx, (p, c, m) in enumerate(paths_list):
+                    pol_cell = f"<td rowspan='{len(paths_list)}' style='vertical-align:top; border-right:1px solid #eee;'><b>{html.escape(pol_name)}</b></td>" if idx == 0 else ""
+                    html_content += f"<tr>{pol_cell}<td><span class='path-mono'>{html.escape(p)}</span></td><td>{c}</td><td>{m}</td></tr>"
+
+        html_content += "</tbody></table></div></div></body></html>"
 
         with open(file_path, "w", encoding="utf-8") as f: f.write(html_content)
