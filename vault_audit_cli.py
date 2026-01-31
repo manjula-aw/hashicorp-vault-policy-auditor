@@ -9,8 +9,8 @@ def main():
     parser.add_argument("--html", help="Path to export HTML report", default=None)
     parser.add_argument("--excel", help="Path to export Excel report", default=None)
     
-    # NEW ARGUMENT
-    parser.add_argument("--scan-all", action="store_true", help="Scan ALL files (e.g. .hcl, .txt). Default behavior scans only files with NO extension.")
+    # NEW ARGUMENT REPLACES --scan-all
+    parser.add_argument("--ext", help="Comma-separated list of extensions to scan (e.g. '.hcl,.txt'). Default: Scan files with NO extension.", default=None)
     
     parser.add_argument("--fail-on-critical", action="store_true", help="Exit with error code 1 if Critical risks found")
     
@@ -19,11 +19,15 @@ def main():
     # Path Normalization
     abs_folder_path = os.path.abspath(args.folder)
     
-    print(f"[*] Scanning directory: {abs_folder_path}")
-    if args.scan_all:
-        print("[*] Mode: Scanning ALL files (including extensions)")
+    # Parse Extensions
+    ext_list = []
+    if args.ext:
+        ext_list = [e.strip() for e in args.ext.split(",")]
+        print(f"[*] Mode: Scanning specific extensions: {ext_list}")
     else:
-        print("[*] Mode: Scanning only files with NO extension (Default)")
+        print("[*] Mode: Scanning files with NO extension (Default)")
+
+    print(f"[*] Scanning directory: {abs_folder_path}")
     
     if not os.path.exists(abs_folder_path):
         print(f"[!] Error: Directory not found: {abs_folder_path}")
@@ -32,8 +36,8 @@ def main():
     # Initialize Engine
     engine = VaultAuditEngine()
     try:
-        # Pass the logic: if scan_all is True, then ignore_extensions is False
-        engine.scan_folder(abs_folder_path, ignore_extensions=not args.scan_all)
+        # Pass the parsed extension list
+        engine.scan_folder(abs_folder_path, extensions=ext_list)
         engine.analyze()
         
         # Summary
