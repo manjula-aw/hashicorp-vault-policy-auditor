@@ -22,12 +22,22 @@ A Python-based tool (UI and CLI version available) to audit HashiCorp Vault poli
 
 ## Installation & Setup
 
-### 1. Prerequisites
+### 1. Clone the Repository
+
+Start by cloning the code to your local machine:
+
+```cmd
+git clone https://github.com/manjula-aw/hashicorp-vault-policy-auditor.git
+cd hashicorp-vault-policy-auditor
+
+```
+
+### 2. Prerequisites
 
 * Python 3.8+
 * Pip (Python Package Manager)
 
-### 2. Dependencies
+### 3. Dependencies
 
 Create a `requirements.txt` file with the following content:
 
@@ -37,7 +47,7 @@ openpyxl
 
 ```
 
-### 3. Setup Virtual Environment
+### 4. Setup Virtual Environment
 
 It is recommended to run this tool in an isolated environment.
 
@@ -151,4 +161,5 @@ The tool currently audits for the following misconfigurations:
 | **MEDIUM** | **Segment Wildcard (+)** | Checks for usage of the `+` character. While valid, it often accidentally exposes sibling paths (e.g. `secret/+/keys` exposes keys for *all* apps). |
 
 ---
+
 
