@@ -43,7 +43,7 @@ def create_tooltip(widget, text):
 class VaultAuditTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("HashiCorp Vault Policy Auditor v28 (Stable)")
+        self.root.title("HashiCorp Vault Policy Auditor")
         
         # Start Maximized
         try: self.root.state('zoomed')
@@ -431,3 +431,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = VaultAuditTool(root)
     root.mainloop()
+
