@@ -82,14 +82,14 @@ The Graphical User Interface is designed for security engineers to browse, analy
 **Windows:**
 
 ```cmd
-python vault_auditor_ui.pyw
+python vault_auditor_ui.py
 
 ```
 
 **Mac / Linux:**
 
 ```bash
-python3 vault_auditor_ui.pyw
+python3 vault_auditor_ui.py
 
 ```
 
@@ -211,4 +211,5 @@ The tool currently audits for the following misconfigurations:
 | **MEDIUM** | **Segment Wildcard (+)** | Checks for usage of the `+` character. While valid, it often accidentally exposes sibling paths (e.g. `secret/+/keys` exposes keys for *all* apps). |
 
 ---
+
 
