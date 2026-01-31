@@ -6,12 +6,13 @@ from vault_audit_core import VaultAuditEngine
 class VaultAuditTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("Vault Policy Auditor (v22 - Fixed)")
+        self.root.title("Hashicorp Vault Policy Auditor")
         self.root.geometry("1500x900")
         
         self.engine = VaultAuditEngine()
         self.var_no_ext = tk.BooleanVar(value=True) 
         self._setup_ui()
+        self._setup_styles()
 
     def _setup_ui(self):
         # Top Frame
@@ -40,7 +41,6 @@ class VaultAuditTool:
         
         # Tab 2: Matrix
         self.tab_matrix = tk.Frame(self.tabs); self.tabs.add(self.tab_matrix, text="2. Matrix")
-        # Toolbar for Matrix
         tb_matrix = tk.Frame(self.tab_matrix); tb_matrix.pack(fill=tk.X, padx=5, pady=2)
         tk.Button(tb_matrix, text="+ Expand All", command=lambda: self.expand_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT)
         tk.Button(tb_matrix, text="- Collapse All", command=lambda: self.collapse_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
@@ -48,7 +48,6 @@ class VaultAuditTool:
 
         # Tab 3: Inspector
         self.tab_policies = tk.Frame(self.tabs); self.tabs.add(self.tab_policies, text="3. Policy Inspector")
-        # Toolbar for Inspector
         tb_pol = tk.Frame(self.tab_policies); tb_pol.pack(fill=tk.X, padx=5, pady=2)
         tk.Button(tb_pol, text="+ Expand All", command=lambda: self.expand_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT)
         tk.Button(tb_pol, text="- Collapse All", command=lambda: self.collapse_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
@@ -64,12 +63,21 @@ class VaultAuditTool:
         for c in cols:
             tree.heading(c, text=c)
             tree.column(c, width=300)
-        
         sb = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         tree.pack(fill=tk.BOTH, expand=True)
         return tree
+
+    def _setup_styles(self):
+        # Risk Colors
+        self.tree_risks.tag_configure("CRITICAL", foreground="#D32F2F", font=("Segoe UI", 9, "bold"))
+        self.tree_risks.tag_configure("HIGH", foreground="#E67E22")
+        self.tree_risks.tag_configure("MEDIUM", foreground="#F1C40F") # Dark Gold
+        
+        # Implicit Path Color (Blue)
+        self.tree_matrix.tag_configure("IMPLICIT", foreground="#3498db")
+        self.tree_policies.tag_configure("MATCH", foreground="#3498db")
 
     def expand_all(self, tree):
         def _expand_recursive(item):
@@ -105,15 +113,24 @@ class VaultAuditTool:
         messagebox.showinfo("Done", f"Found {self.engine.stats['CRITICAL']} Critical Risks.")
 
     def _populate_ui(self):
+        # 1. Risks (Sorted CRITICAL -> HIGH -> MEDIUM)
+        sev_priority = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+        self.engine.audit_issues.sort(key=lambda x: sev_priority.get(x['sev'], 99))
+
         for i in self.engine.audit_issues:
-            self.tree_risks.insert("", "end", values=(i['sev'], i['pol'], i['path'], i['msg'], i['fix']))
+            # Pass severity as tag for coloring
+            self.tree_risks.insert("", "end", values=(i['sev'], i['pol'], i['path'], i['msg'], i['fix']), tags=(i['sev'],))
             
+        # 2. Matrix
         for path, entries in sorted(self.engine.path_matrix.items()):
             node = self.tree_matrix.insert("", "end", text=path, open=False)
             for e in entries:
                 disp = e['policy'] + (f" (via {e['via']})" if e['via'] else "")
-                self.tree_matrix.insert(node, "end", text=disp, values=(", ".join(e['caps']), self.engine.get_risk_flag(e['caps'])))
+                # Tag as IMPLICIT if via is present (Blue text)
+                row_tags = ("IMPLICIT",) if e['via'] else ()
+                self.tree_matrix.insert(node, "end", text=disp, values=(", ".join(e['caps']), self.engine.get_risk_flag(e['caps'])), tags=row_tags)
 
+        # 3. Policy Inspector
         for pol_name, data in sorted(self.engine.policies_data.items()):
             p_node = self.tree_policies.insert("", "end", text=pol_name, open=False)
             for path_block in data['parsed'].get('path', []):
@@ -124,18 +141,18 @@ class VaultAuditTool:
                         if matches: matches_str = f"Matches {len(matches)} paths"
 
                     item_id = self.tree_policies.insert(p_node, "end", text=path_str, values=(", ".join(rules.get('capabilities', [])).upper(), matches_str))
+                    
+                    # Highlight matches in Blue
                     if matches_str:
-                         for m in matches: self.tree_policies.insert(item_id, "end", text=f"↳ {m}", values=("(Inherited)", ""))
+                         for m in matches: self.tree_policies.insert(item_id, "end", text=f"↳ {m}", values=("(Inherited)", ""), tags=("MATCH",))
 
     def export_html(self):
-        # Added initialfile
         f = filedialog.asksaveasfilename(defaultextension=".html", initialfile="vault_audit_report.html", filetypes=[("HTML", "*.html")])
         if f:
             self.engine.export_html(f)
             messagebox.showinfo("Success", "Exported HTML")
 
     def export_excel(self):
-        # Added initialfile
         f = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="vault_audit_report.xlsx", filetypes=[("Excel", "*.xlsx")])
         if f:
             self.engine.export_excel(f)
