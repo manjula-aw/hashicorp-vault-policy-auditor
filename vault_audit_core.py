@@ -1,6 +1,5 @@
 import os
 import hcl2
-import fnmatch
 import html
 import datetime
 import re
@@ -11,11 +10,11 @@ from openpyxl.styles import Font, PatternFill
 class VaultAuditEngine:
     def __init__(self):
         # Core Data Structures
-        self.policies_data = {}       # {filename: {'parsed': ..., 'raw': ..., 'path': ...}}
-        self.path_matrix = {}         # {path: [{'policy':..., 'caps':..., 'via':...}]}
+        self.policies_data = {}       
+        self.path_matrix = {}         
         self.all_concrete_paths = set()
-        self.audit_issues = []        # [{'sev':..., 'pol':..., 'msg':..., 'fix':...}]
-        self.processing_log = []      # [{'file':..., 'status':..., 'msg':...}]
+        self.audit_issues = []        
+        self.processing_log = []      
         self.stats = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
 
     def reset(self):
@@ -49,11 +48,35 @@ class VaultAuditEngine:
                     # Index concrete paths
                     for path_block in parsed_dict.get('path', []):
                         for path_str, _ in path_block.items():
-                            if "*" not in path_str:
+                            if "*" not in path_str and "+" not in path_str:
                                 self.all_concrete_paths.add(path_str)
                                 
                 except Exception as e:
                     self.processing_log.append({"file": filename, "status": "FAILED", "msg": str(e)})
+
+    def _vault_match(self, rule_path, concrete_path):
+        """
+        Vault-specific matching logic:
+        * -> matches anything (greedy)
+        +  -> matches any characters NOT including / (single segment)
+        """
+        # Escape special Regex characters in the rule (like dots), but leave * and + for processing
+        # We temporarily replace * and + with placeholders to avoid re.escape messing them up
+        token_star = "___STAR___"
+        token_plus = "___PLUS___"
+        
+        safe_rule = rule_path.replace("*", token_star).replace("+", token_plus)
+        escaped_rule = re.escape(safe_rule)
+        
+        # Convert Placeholders to Regex
+        # * becomes .* (match anything)
+        # + becomes [^/]+ (match anything except a slash)
+        regex_pattern = "^" + escaped_rule.replace(token_star, ".*").replace(token_plus, "[^/]+") + "$"
+        
+        try:
+            return re.match(regex_pattern, concrete_path) is not None
+        except:
+            return False
 
     def analyze(self):
         """Performs the security analysis and wildcard mapping."""
@@ -69,13 +92,15 @@ class VaultAuditEngine:
                     self.path_matrix[path_str].append({"policy": policy_name, "caps": caps, "via": None})
                     self._check_security(policy_name, path_str, caps)
 
-        # 2. Wildcard Injection
+        # 2. Wildcard Injection (Updated for + support)
         for concrete_path in self.all_concrete_paths:
             for policy_name, data in self.policies_data.items():
                 paths = data['parsed'].get('path', [])
                 for path_entry in paths:
                     for rule_path, rules in path_entry.items():
-                        if "*" in rule_path and fnmatch.fnmatch(concrete_path, rule_path):
+                        # Check if rule has wildcards (* or +)
+                        if ("*" in rule_path or "+" in rule_path) and self._vault_match(rule_path, concrete_path):
+                            
                             # Don't add if explicit exists
                             exists = any(x for x in self.path_matrix.get(concrete_path, []) 
                                          if x['policy'] == policy_name and x['via'] is None)
@@ -90,14 +115,25 @@ class VaultAuditEngine:
         caps_lower = [c.lower() for c in caps]
         issue = None
         
+        # Priority 1: Sudo (Critical)
         if "sudo" in caps_lower:
             issue = {"sev": "CRITICAL", "msg": "Grants 'sudo' capability", "fix": "Remove 'sudo' unless for root admin."}
+        
+        # Priority 2: Full Wildcard (Critical)
         elif "*" in caps_lower:
             issue = {"sev": "CRITICAL", "msg": "Grants '*' capability", "fix": "Replace '*' with specific list [\"read\"]."}
+        
+        # Priority 3: System Write (High)
         elif path.startswith("sys/") and any(x in caps_lower for x in ["create", "update", "delete", "sudo"]):
             issue = {"sev": "HIGH", "msg": "Write access to System Backend", "fix": "Restrict to read-only."}
+        
+        # Priority 4: Root Wildcard (High)
         elif path == "*" or path == "/*":
             issue = {"sev": "HIGH", "msg": "Root wildcard path", "fix": "Scope to specific paths."}
+
+        # Priority 5: Segment Wildcard + (Medium) - NEW
+        elif "+" in path:
+             issue = {"sev": "MEDIUM", "msg": "Uses Segment Wildcard (+)", "fix": "Ensure this does not expose sibling paths (e.g. secret/+/config)."}
 
         if issue:
             issue.update({"pol": policy, "path": path})
@@ -122,6 +158,7 @@ class VaultAuditEngine:
         header_fill = PatternFill(start_color="34495E", end_color="34495E", fill_type="solid")
         header_font = Font(color="FFFFFF", bold=True)
         crit_fill = PatternFill(start_color="E74C3C", fill_type="solid")
+        med_fill = PatternFill(start_color="F1C40F", fill_type="solid")
 
         # Sheet 1: Risks
         ws = wb.active; ws.title = "Security Risks"
@@ -130,8 +167,9 @@ class VaultAuditEngine:
 
         for i in self.audit_issues:
             ws.append([i['sev'], i['pol'], i['path'], i['msg'], i['fix']])
-            if i['sev'] == "CRITICAL":
-                ws.cell(row=ws.max_row, column=1).fill = crit_fill
+            cell = ws.cell(row=ws.max_row, column=1)
+            if i['sev'] == "CRITICAL": cell.fill = crit_fill
+            if i['sev'] == "MEDIUM": cell.fill = med_fill
 
         # Sheet 2: Matrix
         ws2 = wb.create_sheet("Access Matrix")
@@ -194,7 +232,7 @@ class VaultAuditEngine:
 
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # HTML Template (Condensed for brevity)
+        # HTML Template (Condensed)
         html_content = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Vault Audit</title>{mermaid_tag}
         <style>:root{{--bg:#f4f6f8;--white:#fff;--danger:#e74c3c;--warning:#f39c12;}} body{{font-family:sans-serif;background:var(--bg);padding:20px;}} .card{{background:var(--white);padding:20px;border-radius:8px;margin-bottom:20px;box-shadow:0 2px 5px rgba(0,0,0,0.05);}} table{{width:100%;border-collapse:collapse;}} th,td{{padding:12px;border-bottom:1px solid #eee;text-align:left;}} .badge{{padding:4px 8px;border-radius:12px;color:white;font-weight:bold;font-size:0.8em;}} .bg-critical{{background:var(--danger);}} .bg-high{{background:var(--warning);}} .bg-medium{{background:#f1c40f;color:#333;}} .bg-low{{background:#95a5a6;}} .path-mono{{font-family:monospace;color:#e83e8c;background:#fdf0f5;padding:2px 5px;}} .mermaid{{text-align:center;}}</style>
         </head><body><div class="container"><div class="card"><h1>Vault Policy Audit Report</h1><p>{timestamp}</p></div>

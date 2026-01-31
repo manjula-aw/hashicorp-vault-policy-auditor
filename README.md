@@ -1,15 +1,19 @@
 # HashiCorp Vault Policy Auditor
 
-A Python-based tool (with UI and CLI versions) to audit HashiCorp Vault policies for security misconfigurations. It analyzes filesystem paths, capabilities, and wildcards to detect privileges that violate the Principle of Least Privilege.
+A Python-based tool (UI and CLI version available) to audit HashiCorp Vault policies for security misconfigurations. It analyzes filesystem paths, capabilities, and wildcards to detect privileges that violate the Principle of Least Privilege.
 
 ## Features
 
 * **Security Scanning:** Detects critical risks like `sudo` capability, `*` (full admin) rights, and write access to the `sys/` backend.
-* **Wildcard Analysis:** "Explodes" wildcards to show exactly which concrete paths are accessible by a broad rule.
+* **Smart Wildcard Analysis:** "Explodes" wildcards to show exactly which concrete paths are accessible.
+  * **Full Wildcard (`*`):** Matches everything (Greedy).
+  * **Segment Wildcard (`+`):** Matches exactly one directory level (e.g., `secret/+/config`).
+
+
 * **Reverse Access Matrix:** View permissions by Path (Who can access `/secret/payroll`?) or by Policy.
 * **Professional Reporting:**
-* **HTML:** Interactive dashboard with Executive Summary, Mermaid.js Visual Graphs, and Remediation advice.
-* **Excel:** Multi-sheet workbook for detailed data analysis.
+  * **HTML:** Interactive dashboard with Executive Summary, Mermaid.js Visual Graphs, and Remediation advice.
+  * **Excel:** Multi-sheet workbook for detailed data analysis.
 
 
 * **Portable:** The HTML export is self-contained or bundles dependencies in a simple folder structure.
@@ -63,9 +67,9 @@ python vault_auditor_ui.py
 2. **Filter (Optional):** Check "Scan files with NO extension" if your files lack extensions, or specify `.hcl, .txt`.
 3. **Run Audit:** Click the "RUN AUDIT" button.
 4. **Analyze Tabs:**
-* **Tab 1 (Risks):** View Critical/High security issues and remediation steps.
-* **Tab 2 (Matrix):** See who accesses specific paths.
-* **Tab 3 (Inspector):** Deep dive into specific policy files.
+  * **Tab 1 (Risks):** View Critical/High/Medium security issues and remediation steps.
+  * **Tab 2 (Matrix):** See who accesses specific paths.
+  * **Tab 3 (Inspector):** Deep dive into specific policy files.
 
 
 5. **Export:** Use the buttons to generate HTML or Excel reports.
@@ -105,7 +109,7 @@ python vault_audit_cli.py policies --fail-on-critical
 To verify that the tool correctly identifies security risks, you can run it against a set of known insecure policies.
 
 **1. Prepare Test Data**
-Create a new folder named `test_policies` and populate it with the following files (refer to the test policy set provided):
+`test_policies` folder contains following files:
 
 * `critical_sudo_grant.hcl` (Contains sudo capability)
 * `lazy_admin_wildcard.hcl` (Contains * capability)
@@ -126,7 +130,10 @@ python vault_audit_cli.py test_policies --html verification_report.html
 Open `verification_report.html` in your browser and check the following:
 
 * **Graph:** Verify lines connecting `lazy_admin_wildcard` to the nodes defined in `concrete_paths`.
-* **Risks Table:** Ensure `sudo` and `*` capabilities are flagged as **CRITICAL**, and `sys/` write access is flagged as **HIGH**.
+* **Risks Table:**
+  * Ensure `sudo` and `*` capabilities are flagged as **CRITICAL**.
+  * Ensure `sys/` write access is flagged as **HIGH**.
+  * Ensure `advanced_syntax_plus.hcl` is flagged as **MEDIUM** for "Uses Segment Wildcard (+)".
 * **Matrix:** Search for `secret/data/dev/app-config`. It should list two policies: `concrete_paths.hcl` (Direct) and `lazy_admin_wildcard.hcl` (Via wildcard).
 
 ---
@@ -141,5 +148,7 @@ The tool currently audits for the following misconfigurations:
 | **CRITICAL** | **Wildcard Capability** | Checks for `capabilities = ["*"]`. This grants full Admin rights on the path. |
 | **HIGH** | **System Write** | Checks for Write/Create/Update access to `sys/`. Allows modification of Auth methods and Audit backends. |
 | **HIGH** | **Root Wildcard** | Checks for paths defined as `"*"` or `"/*"`. This applies rules to the entire Vault instance. |
+| **MEDIUM** | **Segment Wildcard (+)** | Checks for usage of the `+` character. While valid, it often accidentally exposes sibling paths (e.g. `secret/+/keys` exposes keys for *all* apps). |
 
 ---
+
