@@ -7,7 +7,12 @@ class VaultAuditTool:
     def __init__(self, root):
         self.root = root
         self.root.title("Hashicorp Vault Policy Auditor")
-        self.root.geometry("1500x900")
+        
+        # Make the UI start maximized
+        try:
+            self.root.state('zoomed')
+        except:
+            self.root.attributes('-zoomed', True)
         
         self.engine = VaultAuditEngine()
         self.var_no_ext = tk.BooleanVar(value=True) 
@@ -39,8 +44,9 @@ class VaultAuditTool:
         self.tab_risks = tk.Frame(self.tabs); self.tabs.add(self.tab_risks, text="1. Risks")
         self.tree_risks = self._create_tree(self.tab_risks, ["Severity", "Policy", "Path", "Issue", "Fix"])
         
-        # Tab 2: Matrix
-        self.tab_matrix = tk.Frame(self.tabs); self.tabs.add(self.tab_matrix, text="2. Matrix")
+        # Tab 2: Access Explorer (Renamed from "Matrix")
+        self.tab_matrix = tk.Frame(self.tabs); self.tabs.add(self.tab_matrix, text="2. Access Explorer")
+        
         tb_matrix = tk.Frame(self.tab_matrix); tb_matrix.pack(fill=tk.X, padx=5, pady=2)
         tk.Button(tb_matrix, text="+ Expand All", command=lambda: self.expand_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT)
         tk.Button(tb_matrix, text="- Collapse All", command=lambda: self.collapse_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
@@ -48,6 +54,7 @@ class VaultAuditTool:
 
         # Tab 3: Inspector
         self.tab_policies = tk.Frame(self.tabs); self.tabs.add(self.tab_policies, text="3. Policy Inspector")
+        
         tb_pol = tk.Frame(self.tab_policies); tb_pol.pack(fill=tk.X, padx=5, pady=2)
         tk.Button(tb_pol, text="+ Expand All", command=lambda: self.expand_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT)
         tk.Button(tb_pol, text="- Collapse All", command=lambda: self.collapse_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
@@ -70,13 +77,19 @@ class VaultAuditTool:
         return tree
 
     def _setup_styles(self):
-        # Risk Colors
+        # 1. Risks Tab Styles
+        # Note: Treeview applies colors to the entire row.
         self.tree_risks.tag_configure("CRITICAL", foreground="#D32F2F", font=("Segoe UI", 9, "bold"))
         self.tree_risks.tag_configure("HIGH", foreground="#E67E22")
-        self.tree_risks.tag_configure("MEDIUM", foreground="#F1C40F") # Dark Gold
-        
-        # Implicit Path Color (Blue)
+        self.tree_risks.tag_configure("MEDIUM", foreground="#F1C40F")
+
+        # 2. Access Explorer (Matrix) Styles
+        # Highlight rows with ADMIN risk in Red
+        self.tree_matrix.tag_configure("ADMIN_RISK", foreground="#D32F2F", font=("Segoe UI", 9, "bold"))
+        # Highlight Implicit paths (via wildcard) in Blue
         self.tree_matrix.tag_configure("IMPLICIT", foreground="#3498db")
+        
+        # 3. Policy Inspector Styles
         self.tree_policies.tag_configure("MATCH", foreground="#3498db")
 
     def expand_all(self, tree):
@@ -118,17 +131,21 @@ class VaultAuditTool:
         self.engine.audit_issues.sort(key=lambda x: sev_priority.get(x['sev'], 99))
 
         for i in self.engine.audit_issues:
-            # Pass severity as tag for coloring
             self.tree_risks.insert("", "end", values=(i['sev'], i['pol'], i['path'], i['msg'], i['fix']), tags=(i['sev'],))
             
-        # 2. Matrix
+        # 2. Access Explorer
         for path, entries in sorted(self.engine.path_matrix.items()):
             node = self.tree_matrix.insert("", "end", text=path, open=False)
             for e in entries:
                 disp = e['policy'] + (f" (via {e['via']})" if e['via'] else "")
-                # Tag as IMPLICIT if via is present (Blue text)
-                row_tags = ("IMPLICIT",) if e['via'] else ()
-                self.tree_matrix.insert(node, "end", text=disp, values=(", ".join(e['caps']), self.engine.get_risk_flag(e['caps'])), tags=row_tags)
+                risk_flag = self.engine.get_risk_flag(e['caps'])
+                
+                # Determine Tags
+                tags = []
+                if "ADMIN" in risk_flag: tags.append("ADMIN_RISK")
+                if e['via']: tags.append("IMPLICIT")
+                
+                self.tree_matrix.insert(node, "end", text=disp, values=(", ".join(e['caps']), risk_flag), tags=tuple(tags))
 
         # 3. Policy Inspector
         for pol_name, data in sorted(self.engine.policies_data.items()):
@@ -142,7 +159,6 @@ class VaultAuditTool:
 
                     item_id = self.tree_policies.insert(p_node, "end", text=path_str, values=(", ".join(rules.get('capabilities', [])).upper(), matches_str))
                     
-                    # Highlight matches in Blue
                     if matches_str:
                          for m in matches: self.tree_policies.insert(item_id, "end", text=f"↳ {m}", values=("(Inherited)", ""), tags=("MATCH",))
 
