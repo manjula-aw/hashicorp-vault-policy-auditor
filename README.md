@@ -1,8 +1,8 @@
 # HashiCorp Vault Policy Auditor
 
-A robust, Python-based tool to audit HashiCorp Vault policies for security misconfigurations. It analyzes filesystem paths, capabilities, and wildcards to detect privileges that violate the Principle of Least Privilege.
+A Python-based tool to audit HashiCorp Vault policies for security misconfigurations. It analyzes filesystem paths, capabilities, and wildcards to detect privileges that violate the Principle of Least Privilege, and to highlight overly permissive policies.
 
-## 🚀 Features
+## Features
 
 * **Security Scanning:** Detects critical risks like `sudo` capability, `*` (full admin) rights, and write access to the `sys/` backend.
 * **Wildcard Analysis:** "Explodes" wildcards to show exactly which concrete paths are accessible by a broad rule.
@@ -13,7 +13,7 @@ A robust, Python-based tool to audit HashiCorp Vault policies for security misco
 
 ---
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### 1. Prerequisites
 * Python 3.8+
@@ -38,7 +38,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🖥️ Using the GUI Tool
+## Using the GUI Tool
 
 **Run the script:**
 
@@ -108,17 +108,5 @@ vault_policy_check:
 
 4. **Artifacts:** The `report.html` is saved so you can download and view the audit results from the GitLab UI.
 
----
 
-## 📂 Project Structure
 
-```text
-/Vault_Auditor
-│
-├── vault_auditor_ui.py        # Main GUI Application
-├── vault_audit_cli.py         # Automated CLI Script (for Pipelines)
-├── requirements.txt           # Python Dependencies
-├── mermaid.min.js             # Place this here for offline graphs
-└── README.md                  # This documentation
-
-```
