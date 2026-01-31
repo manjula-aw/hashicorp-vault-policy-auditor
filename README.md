@@ -6,17 +6,17 @@ A Python-based tool (UI and CLI version available) to audit HashiCorp Vault poli
 
 * **Security Scanning:** Detects critical risks like `sudo` capability, `*` (full admin) rights, and write access to the `sys/` backend.
 * **Smart Wildcard Analysis:** "Explodes" wildcards to show exactly which concrete paths are accessible.
- * **Full Wildcard (`*`):** Matches everything (Greedy).
- * **Segment Wildcard (`+`):** Matches exactly one directory level (e.g., `secret/+/config`).
+  * **Full Wildcard (`*`):** Matches everything (Greedy).
+  * **Segment Wildcard (`+`):** Matches exactly one directory level (e.g., `secret/+/config`).
 
 * **Access Explorer (Reverse Matrix):** View permissions by Path (Who can access `/secret/payroll`?) or by Policy.
 * **Professional Reporting:**
- * **HTML:** Interactive dashboard with Sticky Navigation, Executive Summary, Mermaid.js Visual Graphs, and color-coded Risk Tables.
- * **Excel:** Multi-sheet workbook for detailed data analysis.
+  * **HTML:** Interactive dashboard with Sticky Navigation, Executive Summary, Mermaid.js Visual Graphs, and color-coded Risk Tables.
+  * **Excel:** Multi-sheet workbook for detailed data analysis.
 
 * **Visual Highlighting:**
- * **Red:** CRITICAL risks and Admin privileges.
- * **Blue:** Implicit paths accessed via wildcards.
+  * **Red:** CRITICAL risks and Admin privileges.
+  * **Blue:** Implicit paths accessed via wildcards.
 
 * **Portable:** The HTML export is self-contained or bundles dependencies in a simple folder structure.
 
@@ -99,9 +99,9 @@ python3 vault_auditor_ui.pyw
 4. **Analyze Tabs:**
 * **Tab 1 (Risks):** View prioritized security issues (Critical → High → Medium). **CRITICAL** issues are highlighted in Red.
 * **Tab 2 (Access Explorer):** Interactive tree view showing who accesses which path.
- * *Blue Text:* Indicates access granted via a wildcard rule.
- * *Red Text:* Indicates risky Admin capabilities.
- * *Controls:* Use **+ Expand All** / **- Collapse All** to navigate quickly.
+  * *Blue Text:* Indicates access granted via a wildcard rule.
+  * *Red Text:* Indicates risky Admin capabilities.
+  * *Controls:* Use **+ Expand All** / **- Collapse All** to navigate quickly.
 * **Tab 3 (Policy Inspector):** Deep dive into specific policy files and see which real paths their rules match.
 5. **Export:** Use the buttons to generate HTML or Excel reports.
 
@@ -211,3 +211,4 @@ The tool currently audits for the following misconfigurations:
 | **MEDIUM** | **Segment Wildcard (+)** | Checks for usage of the `+` character. While valid, it often accidentally exposes sibling paths (e.g. `secret/+/keys` exposes keys for *all* apps). |
 
 ---
+
