@@ -1,14 +1,17 @@
 # HashiCorp Vault Policy Auditor
 
-A Python-based tool to audit HashiCorp Vault policies for security misconfigurations. It analyzes filesystem paths, capabilities, and wildcards to detect privileges that violate the Principle of Least Privilege, and to highlight overly permissive policies.
+A Python-based tool (with UI and CLI versions) to audit HashiCorp Vault policies for security misconfigurations. It analyzes filesystem paths, capabilities, and wildcards to detect privileges that violate the Principle of Least Privilege.
 
 ## Features
 
 * **Security Scanning:** Detects critical risks like `sudo` capability, `*` (full admin) rights, and write access to the `sys/` backend.
 * **Wildcard Analysis:** "Explodes" wildcards to show exactly which concrete paths are accessible by a broad rule.
+* **Reverse Access Matrix:** View permissions by Path (Who can access `/secret/payroll`?) or by Policy.
 * **Professional Reporting:**
-    * **HTML:** Interactive dashboard with Executive Summary, Mermaid.js Visual Graphs, and Remediation advice.
-    * **Excel:** Multi-sheet workbook for detailed data analysis.
+* **HTML:** Interactive dashboard with Executive Summary, Mermaid.js Visual Graphs, and Remediation advice.
+* **Excel:** Multi-sheet workbook for detailed data analysis.
+
+
 * **Portable:** The HTML export is self-contained or bundles dependencies in a simple folder structure.
 
 ---
@@ -16,11 +19,14 @@ A Python-based tool to audit HashiCorp Vault policies for security misconfigurat
 ## Installation & Setup
 
 ### 1. Prerequisites
+
 * Python 3.8+
 * Pip (Python Package Manager)
 
 ### 2. Dependencies
+
 Create a `requirements.txt` file with the following content:
+
 ```text
 python-hcl2
 openpyxl
@@ -29,9 +35,13 @@ openpyxl
 
 ### 3. Setup Virtual Environment
 
-```bash
-python3 -m venv venv
-source venv/bin/activate
+It is recommended to run this tool in an isolated environment.
+
+Open Command Prompt (`cmd.exe`) in your project folder and run:
+
+```cmd
+python -m venv venv
+venv\Scripts\activate.bat
 pip install -r requirements.txt
 
 ```
@@ -40,73 +50,96 @@ pip install -r requirements.txt
 
 ## Using the GUI Tool
 
+The Graphical User Interface is designed for security engineers to browse, analyze, and visualize data interactively.
+
 **Run the script:**
 
-```bash
+```cmd
 python vault_auditor_ui.py
 
 ```
 
-1. **Select Input:** Browse to the directory containing your `.hcl` or `.txt` policy files.
-2. **Run Audit:** Click the green **RUN AUDIT** button.
-3. **Export:**
-* **HTML:** Creates a report file and a `/script` subfolder containing `mermaid.min.js`.
-* **Excel:** Exports a complete matrix of permissions.
+1. **Select Input:** Click "Browse Folder" to select the directory containing your Policy files (`.hcl` or `.txt`).
+2. **Filter (Optional):** Check "Scan files with NO extension" if your files lack extensions, or specify `.hcl, .txt`.
+3. **Run Audit:** Click the "RUN AUDIT" button.
+4. **Analyze Tabs:**
+* **Tab 1 (Risks):** View Critical/High security issues and remediation steps.
+* **Tab 2 (Matrix):** See who accesses specific paths.
+* **Tab 3 (Inspector):** Deep dive into specific policy files.
 
 
+5. **Export:** Use the buttons to generate HTML or Excel reports.
 
 ---
 
-## 🦊 GitLab CI/CD Integration
+## Using the CLI Tool
 
-To run this auditor automatically in GitLab, add the following to your `.gitlab-ci.yml`.
+The Command Line Interface is designed for headless operations or quick scans.
 
-### Dockerfile Strategy (Recommended)
+**Basic Run:**
 
-First, create a `Dockerfile` in your repo:
-
-```dockerfile
-FROM python:3.9-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY vault_audit_cli.py .
-ENTRYPOINT ["python", "vault_audit_cli.py"]
+```cmd
+python vault_audit_cli.py my_policies_folder
 
 ```
 
-Then, configure `.gitlab-ci.yml`:
+**Generate Reports:**
 
-```yaml
-stages:
-  - security-audit
-
-vault_policy_check:
-  stage: security-audit
-  image: python:3.9-slim
-  before_script:
-    - pip install python-hcl2 openpyxl
-  script:
-    # Assumes your policies are in a folder named 'policies'
-    - python vault_audit_cli.py ./policies --output report.html --fail-on-critical
-  artifacts:
-    when: always
-    paths:
-      - report.html
-    expire_in: 1 week
-  allow_failure: false
+```cmd
+python vault_audit_cli.py policies --html report.html --excel report.xlsx
 
 ```
 
-### Explanation of Pipeline:
+**Fail on Error (Exit Code 1):**
+Use the `--fail-on-critical` flag. If any CRITICAL issues (like `sudo` or `*`) are found, the script returns Exit Code 1. This is useful for scripts that need to stop execution upon finding a risk.
 
-1. **Image:** Uses a lightweight Python image.
-2. **Install:** Installs dependencies on the fly (or use your custom Docker image).
-3. **Script:** Runs the CLI version of the tool against your policies folder.
-* `--fail-on-critical`: If the tool finds any CRITICAL risks (sudo, *), the pipeline will **fail**, preventing the merge.
+```cmd
+python vault_audit_cli.py policies --fail-on-critical
 
+```
 
-4. **Artifacts:** The `report.html` is saved so you can download and view the audit results from the GitLab UI.
+---
 
+## Verifying with Test Policies
 
+To verify that the tool correctly identifies security risks, you can run it against a set of known insecure policies.
 
+**1. Prepare Test Data**
+Create a new folder named `test_policies` and populate it with the following files (refer to the test policy set provided):
+
+* `critical_sudo_grant.hcl` (Contains sudo capability)
+* `lazy_admin_wildcard.hcl` (Contains * capability)
+* `system_write_risk.hcl` (Contains write access to sys/)
+* `root_path_exposure.hcl` (Contains root path *)
+* `concrete_paths.hcl` (Safe paths for wildcard analysis)
+* `advanced_syntax_plus.hcl` (Contains + wildcard)
+
+**2. Run the Audit**
+Execute the CLI tool against this folder and generate an HTML report.
+
+```cmd
+python vault_audit_cli.py test_policies --html verification_report.html
+
+```
+
+**3. Verify Results**
+Open `verification_report.html` in your browser and check the following:
+
+* **Graph:** Verify lines connecting `lazy_admin_wildcard` to the nodes defined in `concrete_paths`.
+* **Risks Table:** Ensure `sudo` and `*` capabilities are flagged as **CRITICAL**, and `sys/` write access is flagged as **HIGH**.
+* **Matrix:** Search for `secret/data/dev/app-config`. It should list two policies: `concrete_paths.hcl` (Direct) and `lazy_admin_wildcard.hcl` (Via wildcard).
+
+---
+
+## Security Checks Performed
+
+The tool currently audits for the following misconfigurations:
+
+| Severity | Check | Description |
+| --- | --- | --- |
+| **CRITICAL** | **Sudo Capability** | Checks if `capabilities = ["sudo"]` is granted. This allows bypassing audit logs and restrictions. |
+| **CRITICAL** | **Wildcard Capability** | Checks for `capabilities = ["*"]`. This grants full Admin rights on the path. |
+| **HIGH** | **System Write** | Checks for Write/Create/Update access to `sys/`. Allows modification of Auth methods and Audit backends. |
+| **HIGH** | **Root Wildcard** | Checks for paths defined as `"*"` or `"/*"`. This applies rules to the entire Vault instance. |
+
+---
