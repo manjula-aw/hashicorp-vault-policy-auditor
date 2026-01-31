@@ -6,14 +6,11 @@ from vault_audit_core import VaultAuditEngine
 class VaultAuditTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("Hashicorp Vault Policy Auditor")
+        self.root.title("Vault Policy Auditor (v22 - Fixed)")
         self.root.geometry("1500x900")
         
-        # Initialize Engine
         self.engine = VaultAuditEngine()
         self.var_no_ext = tk.BooleanVar(value=True) 
-
-        # UI Setup
         self._setup_ui()
 
     def _setup_ui(self):
@@ -41,12 +38,20 @@ class VaultAuditTool:
         self.tab_risks = tk.Frame(self.tabs); self.tabs.add(self.tab_risks, text="1. Risks")
         self.tree_risks = self._create_tree(self.tab_risks, ["Severity", "Policy", "Path", "Issue", "Fix"])
         
-        # Tab 2: Matrix (Path -> Policy)
+        # Tab 2: Matrix
         self.tab_matrix = tk.Frame(self.tabs); self.tabs.add(self.tab_matrix, text="2. Matrix")
+        # Toolbar for Matrix
+        tb_matrix = tk.Frame(self.tab_matrix); tb_matrix.pack(fill=tk.X, padx=5, pady=2)
+        tk.Button(tb_matrix, text="+ Expand All", command=lambda: self.expand_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT)
+        tk.Button(tb_matrix, text="- Collapse All", command=lambda: self.collapse_all(self.tree_matrix), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
         self.tree_matrix = self._create_tree(self.tab_matrix, ["Capabilities", "Risk"], first_col="Path / Policy")
 
-        # Tab 3: Inspector (Policy -> Paths) - RESTORED
+        # Tab 3: Inspector
         self.tab_policies = tk.Frame(self.tabs); self.tabs.add(self.tab_policies, text="3. Policy Inspector")
+        # Toolbar for Inspector
+        tb_pol = tk.Frame(self.tab_policies); tb_pol.pack(fill=tk.X, padx=5, pady=2)
+        tk.Button(tb_pol, text="+ Expand All", command=lambda: self.expand_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT)
+        tk.Button(tb_pol, text="- Collapse All", command=lambda: self.collapse_all(self.tree_policies), font=("Arial", 8)).pack(side=tk.LEFT, padx=5)
         self.tree_policies = self._create_tree(self.tab_policies, ["Capabilities", "Wildcard Matches"], first_col="Policy / Path")
 
     def _create_tree(self, parent, cols, first_col=None):
@@ -60,12 +65,23 @@ class VaultAuditTool:
             tree.heading(c, text=c)
             tree.column(c, width=300)
         
-        # Add Scrollbar
         sb = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         tree.pack(fill=tk.BOTH, expand=True)
         return tree
+
+    def expand_all(self, tree):
+        def _expand_recursive(item):
+            tree.item(item, open=True)
+            for child in tree.get_children(item): _expand_recursive(child)
+        for item in tree.get_children(): _expand_recursive(item)
+
+    def collapse_all(self, tree):
+        def _collapse_recursive(item):
+            tree.item(item, open=False)
+            for child in tree.get_children(item): _collapse_recursive(child)
+        for item in tree.get_children(): _collapse_recursive(item)
 
     def browse_folder(self):
         f = filedialog.askdirectory()
@@ -76,16 +92,12 @@ class VaultAuditTool:
     def run_audit(self):
         if not hasattr(self, 'selected_folder'): return
         
-        # Clear UI
         for t in [self.tree_risks, self.tree_matrix, self.tree_policies]:
             for i in t.get_children(): t.delete(i)
             
-        # Use Engine
         self.engine.reset()
         self.engine.scan_folder(self.selected_folder, ignore_extensions=self.var_no_ext.get())
         self.engine.analyze()
-        
-        # Populate UI
         self._populate_ui()
         
         self.btn_export_html.config(state="normal")
@@ -93,51 +105,38 @@ class VaultAuditTool:
         messagebox.showinfo("Done", f"Found {self.engine.stats['CRITICAL']} Critical Risks.")
 
     def _populate_ui(self):
-        # 1. Risks
         for i in self.engine.audit_issues:
             self.tree_risks.insert("", "end", values=(i['sev'], i['pol'], i['path'], i['msg'], i['fix']))
             
-        # 2. Matrix
         for path, entries in sorted(self.engine.path_matrix.items()):
             node = self.tree_matrix.insert("", "end", text=path, open=False)
             for e in entries:
                 disp = e['policy'] + (f" (via {e['via']})" if e['via'] else "")
                 self.tree_matrix.insert(node, "end", text=disp, values=(", ".join(e['caps']), self.engine.get_risk_flag(e['caps'])))
 
-        # 3. Policy Inspector (Restored Logic)
         for pol_name, data in sorted(self.engine.policies_data.items()):
             p_node = self.tree_policies.insert("", "end", text=pol_name, open=False)
-            content = data['parsed']
-            
-            for path_block in content.get('path', []):
+            for path_block in data['parsed'].get('path', []):
                 for path_str, rules in path_block.items():
-                    caps = rules.get('capabilities', [])
-                    if isinstance(caps, str): caps = [caps]
-                    
-                    # Check for Wildcard Matches using Engine's Logic
                     matches_str = ""
                     if ("*" in path_str or "+" in path_str):
-                        # Find which concrete paths this rule matches
                         matches = [m for m in self.engine.all_concrete_paths if self.engine._vault_match(path_str, m)]
-                        if matches:
-                            matches_str = f"Matches {len(matches)} paths"
+                        if matches: matches_str = f"Matches {len(matches)} paths"
 
-                    item_id = self.tree_policies.insert(p_node, "end", text=path_str, values=(", ".join(caps).upper(), matches_str))
-                    
-                    # Add child nodes for the matches
+                    item_id = self.tree_policies.insert(p_node, "end", text=path_str, values=(", ".join(rules.get('capabilities', [])).upper(), matches_str))
                     if matches_str:
-                         for m in matches:
-                             self.tree_policies.insert(item_id, "end", text=f"↳ {m}", values=("(Inherited)", ""))
-
+                         for m in matches: self.tree_policies.insert(item_id, "end", text=f"↳ {m}", values=("(Inherited)", ""))
 
     def export_html(self):
-        f = filedialog.asksaveasfilename(defaultextension=".html", filetypes=[("HTML", "*.html")])
+        # Added initialfile
+        f = filedialog.asksaveasfilename(defaultextension=".html", initialfile="vault_audit_report.html", filetypes=[("HTML", "*.html")])
         if f:
             self.engine.export_html(f)
             messagebox.showinfo("Success", "Exported HTML")
 
     def export_excel(self):
-        f = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")])
+        # Added initialfile
+        f = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile="vault_audit_report.xlsx", filetypes=[("Excel", "*.xlsx")])
         if f:
             self.engine.export_excel(f)
             messagebox.showinfo("Success", "Exported Excel")
