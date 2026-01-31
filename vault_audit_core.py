@@ -19,15 +19,32 @@ class VaultAuditEngine:
     def reset(self):
         self.__init__()
 
-    def scan_folder(self, folder_path, ignore_extensions=True):
+    def scan_folder(self, folder_path, extensions=None):
+        """
+        Scans a folder for policies.
+        :param extensions: List of allowed extensions (e.g. ['.hcl', '.txt']). 
+                           If None or empty, scans files with NO extension.
+        """
         if not os.path.exists(folder_path):
             raise FileNotFoundError(f"Directory not found: {folder_path}")
+
+        # Normalize extensions to ensure they have dot prefix
+        valid_exts = []
+        if extensions:
+            valid_exts = [e if e.startswith(".") else f".{e}" for e in extensions]
 
         for root, _, files in os.walk(folder_path):
             for filename in files:
                 if filename.startswith('.'): continue
                 _, ext = os.path.splitext(filename)
-                if ignore_extensions and ext != "": continue
+                
+                # FILTERING LOGIC
+                if not valid_exts:
+                    # Default Mode: Only scan files with NO extension
+                    if ext != "": continue
+                else:
+                    # Explicit Mode: Only scan matching extensions
+                    if ext not in valid_exts: continue
                 
                 filepath = os.path.join(root, filename)
                 try:
@@ -100,7 +117,7 @@ class VaultAuditEngine:
         crit_fill = PatternFill(start_color="E74C3C", fill_type="solid")
         med_fill = PatternFill(start_color="F1C40F", fill_type="solid")
 
-        # Sort issues for Excel too
+        # Sort issues
         sev_priority = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
         self.audit_issues.sort(key=lambda x: sev_priority.get(x['sev'], 99))
 
@@ -157,18 +174,15 @@ class VaultAuditEngine:
                 mermaid_tag = '<script src="script/mermaid.min.js"></script>\n<script>mermaid.initialize({ startOnLoad: true });</script>'
             except: pass
 
-        # Sort Issues by Severity for HTML
         sev_priority = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
         self.audit_issues.sort(key=lambda x: sev_priority.get(x['sev'], 99))
 
-        # Stats
         count_crit = self.stats['CRITICAL']
         count_high = self.stats['HIGH']
         count_files = len(self.policies_data)
         count_paths = len(self.path_matrix)
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Graph
         graph_def = "graph LR\n"
         has_graph = False
         for issue in self.audit_issues:
@@ -211,7 +225,7 @@ class VaultAuditEngine:
         <div class="container">
             <div id="dashboard" class="header">
                 <div><h1>Hashicorp Vault Policy Auditor</h1><div style="color:#777">{timestamp}</div></div>
-                <div><span class="badge bg-ok">v23.0</span></div>
+                <div><span class="badge bg-ok">v24.0</span></div>
             </div>
 
             <div class="dashboard">
@@ -227,7 +241,6 @@ class VaultAuditEngine:
         
         if not self.audit_issues: html_content += "<tr><td colspan='5' style='text-align:center;color:green'>✅ No obvious security risks detected.</td></tr>"
         for i in self.audit_issues:
-            # Highlight CRITICAL in red text too
             sev_class = f"bg-{i['sev'].lower()}"
             sev_text_class = "text-red" if i['sev'] == "CRITICAL" else ""
             html_content += f"<tr><td><span class='badge {sev_class}'>{i['sev']}</span></td><td><b>{html.escape(i['pol'])}</b></td><td><span class='path-mono'>{html.escape(i['path'])}</span></td><td class='{sev_text_class}'>{html.escape(i['msg'])}</td><td>{html.escape(i['fix'])}</td></tr>"
@@ -238,7 +251,6 @@ class VaultAuditEngine:
             first = True
             for e in self.path_matrix[path]:
                 p_cell = f"<td rowspan='{len(self.path_matrix[path])}' style='border-right:1px solid #eee'><span class='path-mono'>{html.escape(path)}</span></td>" if first else ""
-                # Highlight "via wildcard" in blue
                 via_txt = f"<br><small class='text-blue'>via {html.escape(e['via'])}</small>" if e['via'] else ""
                 html_content += f"<tr>{p_cell}<td><b>{html.escape(e['policy'])}</b>{via_txt}</td><td>{', '.join(e['caps']).upper()}</td></tr>"
                 first = False
