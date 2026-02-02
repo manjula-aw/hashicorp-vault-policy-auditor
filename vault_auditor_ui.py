@@ -43,7 +43,7 @@ def create_tooltip(widget, text):
 class VaultAuditTool:
     def __init__(self, root):
         self.root = root
-        self.root.title("HashiCorp Vault Policy Auditor v1.0.0")
+        self.root.title("HashiCorp Vault Policy Auditor v31 (Pro)")
         
         # Start Maximized
         try: self.root.state('zoomed')
@@ -89,58 +89,60 @@ class VaultAuditTool:
         header = tk.Frame(self.root, bg="white", padx=15, pady=15, relief="flat")
         header.pack(fill=tk.X, side=tk.TOP)
         
+        # 1. Title (Left)
         title_frame = tk.Frame(header, bg="white")
         title_frame.pack(side=tk.LEFT)
         tk.Label(title_frame, text="Vault Policy Auditor", font=("Segoe UI", 16, "bold"), bg="white", fg="#2D3748").pack(anchor="w")
         self.lbl_subtitle = tk.Label(title_frame, text="Ready to scan", font=("Segoe UI", 9), bg="white", fg="#718096")
         self.lbl_subtitle.pack(anchor="w")
 
-        # Controls Frame
-        controls = tk.Frame(header, bg="white")
-        controls.pack(side=tk.RIGHT)
-        
-        # 1. Browse
-        btn_browse = tk.Button(controls, text="📂 Browse Folder", command=self.browse_folder, 
-                             bg="#EDF2F7", fg="#2D3748", relief="flat", font=("Segoe UI", 9), padx=10, pady=5)
-        btn_browse.pack(side=tk.LEFT, padx=5)
-        
-        # 2. Extensions (New Checkbox Logic)
-        ext_frame = tk.Frame(controls, bg="white")
-        ext_frame.pack(side=tk.LEFT, padx=10)
-        
-        tk.Label(ext_frame, text="Scan:", bg="white", fg="#718096").pack(side=tk.LEFT)
-        
-        self.var_ext_hcl = tk.BooleanVar(value=0)
-        cb_hcl = tk.Checkbutton(ext_frame, text=".hcl", variable=self.var_ext_hcl, bg="white", activebackground="white", font=("Segoe UI", 9))
-        cb_hcl.pack(side=tk.LEFT, padx=2)
-        
-        self.var_ext_txt = tk.BooleanVar(value=0)
-        cb_txt = tk.Checkbutton(ext_frame, text=".txt", variable=self.var_ext_txt, bg="white", activebackground="white", font=("Segoe UI", 9))
-        cb_txt.pack(side=tk.LEFT, padx=2)
-        
-        tk.Label(ext_frame, text="Other:", bg="white", fg="#718096").pack(side=tk.LEFT, padx=(5,2))
-        self.ent_ext_other = tk.Entry(ext_frame, width=6, relief="solid", bd=1)
-        self.ent_ext_other.pack(side=tk.LEFT)
-        create_tooltip(self.ent_ext_other, "Comma separated (e.g. .json). Leave ALL unchecked/empty to scan files with NO extension.")
+        # 2. RUN BUTTON (Packed RIGHT first, so it stays on the far right edge)
+        self.btn_run = tk.Button(header, text="▶ RUN AUDIT", command=self.run_audit, 
+                               bg="#48BB78", fg="white", font=("Segoe UI", 10, "bold"), relief="flat", padx=20, pady=8)
+        self.btn_run.pack(side=tk.RIGHT, padx=10)
 
-        # 3. Search Filter
-        tk.Label(controls, text="🔍 Filter:", bg="white", fg="#718096").pack(side=tk.LEFT, padx=(15,2))
+        # 3. Controls Group (Packed RIGHT next to Run button)
+        controls = tk.Frame(header, bg="white")
+        controls.pack(side=tk.RIGHT, padx=20)
+        
+        # Exports
+        self.btn_excel = tk.Button(controls, text="⬇ Excel", command=self.export_excel, state="disabled", bg="#E2E8F0", relief="flat", padx=10)
+        self.btn_excel.pack(side=tk.RIGHT, padx=2)
+        self.btn_html = tk.Button(controls, text="⬇ HTML", command=self.export_html, state="disabled", bg="#E2E8F0", relief="flat", padx=10)
+        self.btn_html.pack(side=tk.RIGHT, padx=2)
+        
+        tk.Frame(controls, width=15, bg="white").pack(side=tk.RIGHT) # Spacer
+
+        # Filter
         self.var_search = tk.StringVar()
         self.var_search.trace_add("write", self.on_filter_change)
-        self.ent_search = tk.Entry(controls, textvariable=self.var_search, width=20, relief="solid", bd=1)
-        self.ent_search.pack(side=tk.LEFT)
+        self.ent_search = tk.Entry(controls, textvariable=self.var_search, width=15, relief="solid", bd=1)
+        self.ent_search.pack(side=tk.RIGHT)
+        create_tooltip(self.ent_search, "Type to instantly filter rows by Policy, Path, or Risk.")
+        tk.Label(controls, text="🔍 Filter:", bg="white", fg="#718096").pack(side=tk.RIGHT, padx=(5,2))
 
-        # 4. Exports
-        tk.Frame(controls, width=20, bg="white").pack(side=tk.LEFT)
-        self.btn_html = tk.Button(controls, text="⬇ HTML", command=self.export_html, state="disabled", bg="#E2E8F0", relief="flat", padx=10)
-        self.btn_html.pack(side=tk.LEFT, padx=2)
-        self.btn_excel = tk.Button(controls, text="⬇ Excel", command=self.export_excel, state="disabled", bg="#E2E8F0", relief="flat", padx=10)
-        self.btn_excel.pack(side=tk.LEFT, padx=2)
+        tk.Frame(controls, width=15, bg="white").pack(side=tk.RIGHT) # Spacer
 
-        # 5. Run Action
-        self.btn_run = tk.Button(controls, text="▶ RUN AUDIT", command=self.run_audit, 
-                               bg="#48BB78", fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=15, pady=5)
-        self.btn_run.pack(side=tk.LEFT, padx=15)
+        # Extensions
+        create_tooltip(controls, "Select extensions to scan")
+        self.ent_ext_other = tk.Entry(controls, width=5, relief="solid", bd=1)
+        self.ent_ext_other.pack(side=tk.RIGHT)
+        tk.Label(controls, text="Other:", bg="white", fg="#718096").pack(side=tk.RIGHT, padx=(5,2))
+        
+        self.var_ext_txt = tk.BooleanVar(value=0)
+        tk.Checkbutton(controls, text=".txt", variable=self.var_ext_txt, bg="white", activebackground="white").pack(side=tk.RIGHT)
+        
+        self.var_ext_hcl = tk.BooleanVar(value=0)
+        tk.Checkbutton(controls, text=".hcl", variable=self.var_ext_hcl, bg="white", activebackground="white").pack(side=tk.RIGHT)
+        
+        tk.Label(controls, text="Scan:", bg="white", fg="#718096").pack(side=tk.RIGHT, padx=(5,2))
+
+        tk.Frame(controls, width=15, bg="white").pack(side=tk.RIGHT) # Spacer
+
+        # Browse
+        tk.Button(controls, text="📂 Browse", command=self.browse_folder, 
+                 bg="#EDF2F7", fg="#2D3748", relief="flat", font=("Segoe UI", 9), padx=10).pack(side=tk.RIGHT)
+
 
         # --- MAIN SPLIT VIEW ---
         self.paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -238,7 +240,7 @@ class VaultAuditTool:
         for t in [self.tree_risks, self.tree_matrix, self.tree_inspector]:
             for i in t.get_children(): t.delete(i)
         
-        # --- NEW EXTENSION LOGIC ---
+        # --- EXTENSION LOGIC ---
         ext_list = []
         if self.var_ext_hcl.get(): ext_list.append(".hcl")
         if self.var_ext_txt.get(): ext_list.append(".txt")
@@ -247,7 +249,6 @@ class VaultAuditTool:
         if other:
             ext_list.extend([e.strip() for e in other.split(",")])
             
-        # If list is empty, pass None (Engine defaults to 'no extension')
         final_exts = ext_list if ext_list else None
         
         self.status_bar.config(text="Scanning... please wait.")
